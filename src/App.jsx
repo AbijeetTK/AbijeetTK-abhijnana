@@ -845,13 +845,19 @@ Rules: End with ONE comprehension question. Keep it under 250 words. Be warm and
         }
         return m;
       });
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const geminiMsgs = buildMessages(msgs).map(m => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: Array.isArray(m.content)
+          ? m.content.map(p => p.type === "document" ? { inlineData: { mimeType: "application/pdf", data: p.source.data } } : { text: p.text })
+          : [{ text: m.content }]
+      }));
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system, messages: buildMessages(msgs) }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: geminiMsgs }),
       });
       const data = await res.json();
-      const reply = data.content?.[0]?.text || "Something went wrong — try again.";
+      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "Something went wrong — try again.";
       setMessages(isIntro ? [{ role: "assistant", content: reply }] : [...messages, { role: "user", content: userMsg }, { role: "assistant", content: reply }]);
     } catch { setMessages(prev => [...prev, { role: "assistant", content: "Something went wrong, please try again." }]); }
     setLoading(false);
@@ -931,13 +937,19 @@ Return ONLY valid JSON (no markdown):
       const quizMsgs = course.pdfData?.base64
         ? [{ role: "user", content: [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: course.pdfData.base64 } }, { type: "text", text: "Generate quiz." }] }]
         : [{ role: "user", content: "Generate quiz." }];
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const geminiQuizMsgs = quizMsgs.map(m => ({
+        role: "user",
+        parts: Array.isArray(m.content)
+          ? m.content.map(p => p.type === "document" ? { inlineData: { mimeType: "application/pdf", data: p.source.data } } : { text: p.text })
+          : [{ text: m.content }]
+      }));
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1200, system: sys, messages: quizMsgs }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: geminiQuizMsgs }),
       });
       const data = await res.json();
-      const parsed = JSON.parse(data.content?.[0]?.text?.replace(/```json|```/g, "").trim() || "[]");
+      const parsed = JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text?.replace(/```json|```/g, "").trim() || "[]");
       setQuestions(parsed); setPhase("quiz");
     } catch { setPhase("error"); }
   };
@@ -1032,13 +1044,19 @@ Return ONLY valid JSON: [{"front":"term","back":"explanation in 1-2 sentences"}]
       const flashMsgs = course.pdfData?.base64
         ? [{ role: "user", content: [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: course.pdfData.base64 } }, { type: "text", text: "Generate flashcards." }] }]
         : [{ role: "user", content: "Generate flashcards." }];
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const geminiFlashMsgs = flashMsgs.map(m => ({
+        role: "user",
+        parts: Array.isArray(m.content)
+          ? m.content.map(p => p.type === "document" ? { inlineData: { mimeType: "application/pdf", data: p.source.data } } : { text: p.text })
+          : [{ text: m.content }]
+      }));
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1200, system: sys, messages: flashMsgs }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: geminiFlashMsgs }),
       });
       const data = await res.json();
-      setCards(JSON.parse(data.content?.[0]?.text?.replace(/```json|```/g, "").trim() || "[]"));
+      setCards(JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text?.replace(/```json|```/g, "").trim() || "[]"));
     } catch {}
     setLoading(false);
   };
@@ -1109,13 +1127,19 @@ Return ONLY valid JSON:
       const examMsgs = course.pdfData?.base64
         ? [{ role: "user", content: [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: course.pdfData.base64 } }, { type: "text", text: "Generate exam." }] }]
         : [{ role: "user", content: "Generate exam." }];
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const geminiExamMsgs = examMsgs.map(m => ({
+        role: "user",
+        parts: Array.isArray(m.content)
+          ? m.content.map(p => p.type === "document" ? { inlineData: { mimeType: "application/pdf", data: p.source.data } } : { text: p.text })
+          : [{ text: m.content }]
+      }));
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 2000, system: sys, messages: examMsgs }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: geminiExamMsgs }),
       });
       const data = await res.json();
-      const qs = JSON.parse(data.content?.[0]?.text?.replace(/```json|```/g, "").trim() || "[]");
+      const qs = JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text?.replace(/```json|```/g, "").trim() || "[]");
       setQuestions(qs); setAnswers(new Array(qs.length).fill(null));
       const dur = (ep.duration || 30) * 60;
       setTimeLeft(dur);
