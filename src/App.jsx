@@ -845,19 +845,17 @@ Rules: End with ONE comprehension question. Keep it under 250 words. Be warm and
         }
         return m;
       });
-      const geminiMsgs = buildMessages(msgs).map(m => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: Array.isArray(m.content)
-          ? m.content.map(p => p.type === "document" ? { inlineData: { mimeType: "application/pdf", data: p.source.data } } : { text: p.text })
-          : [{ text: m.content }]
-      }));
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`, {
+      const groqMsgs = [{ role: "system", content: system }, ...buildMessages(msgs).map(m => ({
+        role: m.role,
+        content: Array.isArray(m.content) ? m.content.filter(p => p.type === "text").map(p => p.text).join("\n") : m.content
+      }))];
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: geminiMsgs }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_GROQ_API_KEY}` },
+        body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 1000, messages: groqMsgs }),
       });
       const data = await res.json();
-      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "Something went wrong — try again.";
+      const reply = data.choices?.[0]?.message?.content || "Something went wrong — try again.";
       setMessages(isIntro ? [{ role: "assistant", content: reply }] : [...messages, { role: "user", content: userMsg }, { role: "assistant", content: reply }]);
     } catch { setMessages(prev => [...prev, { role: "assistant", content: "Something went wrong, please try again." }]); }
     setLoading(false);
@@ -937,19 +935,17 @@ Return ONLY valid JSON (no markdown):
       const quizMsgs = course.pdfData?.base64
         ? [{ role: "user", content: [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: course.pdfData.base64 } }, { type: "text", text: "Generate quiz." }] }]
         : [{ role: "user", content: "Generate quiz." }];
-      const geminiQuizMsgs = quizMsgs.map(m => ({
-        role: "user",
-        parts: Array.isArray(m.content)
-          ? m.content.map(p => p.type === "document" ? { inlineData: { mimeType: "application/pdf", data: p.source.data } } : { text: p.text })
-          : [{ text: m.content }]
-      }));
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`, {
+      const groqQuizMsgs = [{ role: "system", content: sys }, ...quizMsgs.map(m => ({
+        role: m.role,
+        content: Array.isArray(m.content) ? m.content.filter(p => p.type === "text").map(p => p.text).join("\n") : m.content
+      }))];
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: geminiQuizMsgs }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_GROQ_API_KEY}` },
+        body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 1200, messages: groqQuizMsgs }),
       });
       const data = await res.json();
-      const parsed = JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text?.replace(/```json|```/g, "").trim() || "[]");
+      const parsed = JSON.parse(data.choices?.[0]?.message?.content?.replace(/```json|```/g, "").trim() || "[]");
       setQuestions(parsed); setPhase("quiz");
     } catch { setPhase("error"); }
   };
@@ -1044,19 +1040,17 @@ Return ONLY valid JSON: [{"front":"term","back":"explanation in 1-2 sentences"}]
       const flashMsgs = course.pdfData?.base64
         ? [{ role: "user", content: [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: course.pdfData.base64 } }, { type: "text", text: "Generate flashcards." }] }]
         : [{ role: "user", content: "Generate flashcards." }];
-      const geminiFlashMsgs = flashMsgs.map(m => ({
-        role: "user",
-        parts: Array.isArray(m.content)
-          ? m.content.map(p => p.type === "document" ? { inlineData: { mimeType: "application/pdf", data: p.source.data } } : { text: p.text })
-          : [{ text: m.content }]
-      }));
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`, {
+      const groqFlashMsgs = [{ role: "system", content: sys }, ...flashMsgs.map(m => ({
+        role: m.role,
+        content: Array.isArray(m.content) ? m.content.filter(p => p.type === "text").map(p => p.text).join("\n") : m.content
+      }))];
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: geminiFlashMsgs }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_GROQ_API_KEY}` },
+        body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 1200, messages: groqFlashMsgs }),
       });
       const data = await res.json();
-      setCards(JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text?.replace(/```json|```/g, "").trim() || "[]"));
+      setCards(JSON.parse(data.choices?.[0]?.message?.content?.replace(/```json|```/g, "").trim() || "[]"));
     } catch {}
     setLoading(false);
   };
@@ -1127,19 +1121,17 @@ Return ONLY valid JSON:
       const examMsgs = course.pdfData?.base64
         ? [{ role: "user", content: [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: course.pdfData.base64 } }, { type: "text", text: "Generate exam." }] }]
         : [{ role: "user", content: "Generate exam." }];
-      const geminiExamMsgs = examMsgs.map(m => ({
-        role: "user",
-        parts: Array.isArray(m.content)
-          ? m.content.map(p => p.type === "document" ? { inlineData: { mimeType: "application/pdf", data: p.source.data } } : { text: p.text })
-          : [{ text: m.content }]
-      }));
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`, {
+      const groqExamMsgs = [{ role: "system", content: sys }, ...examMsgs.map(m => ({
+        role: m.role,
+        content: Array.isArray(m.content) ? m.content.filter(p => p.type === "text").map(p => p.text).join("\n") : m.content
+      }))];
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: geminiExamMsgs }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${import.meta.env.VITE_GROQ_API_KEY}` },
+        body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 2000, messages: groqExamMsgs }),
       });
       const data = await res.json();
-      const qs = JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text?.replace(/```json|```/g, "").trim() || "[]");
+      const qs = JSON.parse(data.choices?.[0]?.message?.content?.replace(/```json|```/g, "").trim() || "[]");
       setQuestions(qs); setAnswers(new Array(qs.length).fill(null));
       const dur = (ep.duration || 30) * 60;
       setTimeLeft(dur);
