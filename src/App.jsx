@@ -1201,27 +1201,24 @@ export default function App() {
   const S = makeStyles(C);
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const r = await window.storage.get("lms_courses");
-        if (r?.value) { setCourses(JSON.parse(r.value)); }
-        else { setCourses(DEMO_COURSES); }
-        const t = await window.storage.get("lms_theme");
-        if (t?.value) setThemeName(t.value);
-      } catch { setCourses(DEMO_COURSES); }
-    };
-    load();
+    try {
+      const saved = localStorage.getItem("lms_courses");
+      if (saved) { setCourses(JSON.parse(saved)); }
+      else { setCourses(DEMO_COURSES); }
+      const t = localStorage.getItem("lms_theme");
+      if (t) setThemeName(t);
+    } catch { setCourses(DEMO_COURSES); }
   }, []);
 
   useEffect(() => {
     if (courses === null) return;
-    window.storage.set("lms_courses", JSON.stringify(courses)).catch(() => {});
+    try { localStorage.setItem("lms_courses", JSON.stringify(courses)); } catch {}
   }, [courses]);
 
   const toggleTheme = () => {
     const next = themeName === "dark" ? "light" : "dark";
     setThemeName(next);
-    window.storage.set("lms_theme", next).catch(() => {});
+    try { localStorage.setItem("lms_theme", next); } catch {}
   };
 
   const activeCourse = courses?.find(c => c.id === activeCourseId);
