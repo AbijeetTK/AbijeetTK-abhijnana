@@ -207,6 +207,7 @@ function AddCourseScreen({ onSave, onBack, editCourse, C, S }) {
   // Step 4 — notes / material
   const [notes, setNotes] = useState(editCourse?.notes || "");
   const [uploadStatus, setUploadStatus] = useState("");
+  const [pdfData, setPdfData] = useState(editCourse?.pdfData || null);
 
   const handleFileUpload = async (file) => {
     if (!file) return;
@@ -219,28 +220,17 @@ function AddCourseScreen({ onSave, onBack, editCourse, C, S }) {
     }
     if (file.type === "application/pdf") {
       try {
-        const arrayBuffer = await file.arrayBuffer();
-        const uint8 = new Uint8Array(arrayBuffer);
-        const str = new TextDecoder("latin1").decode(uint8);
-        const streams = str.match(/stream[\s\S]*?endstream/g) || [];
-        let text = "";
-        streams.forEach(s => {
-          const cleaned = s.replace(/stream|endstream|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\xff]/g, " ")
-            .replace(/\s+/g, " ").trim();
-          const words = cleaned.match(/[a-zA-Z][a-zA-Z0-9\s.,;:'"!?()\/\-]{3,}/g) || [];
-          text += words.join(" ") + " ";
-        });
-        text = text.replace(/\s+/g, " ").trim();
-        if (text.length > 100) {
-          setNotes(prev => prev ? prev + "\n\n" + text : text);
-          setUploadStatus(`✓ ${file.name} extracted (${text.length} chars)`);
-        } else {
-          setUploadStatus("⚠ Could not extract text from this PDF. Try copy-pasting your notes instead.");
-        }
-      } catch { setUploadStatus("✗ Could not read PDF. Please paste your notes as text."); }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const base64 = e.target.result.split(",")[1];
+          setPdfData({ base64, name: file.name, size: file.size });
+          setUploadStatus(`✓ ${file.name} ready (${(file.size / 1024).toFixed(0)} KB) — Claude will read it directly`);
+        };
+        reader.readAsDataURL(file);
+      } catch { setUploadStatus("✗ Could not read PDF. Please try again."); }
       return;
     }
-    setUploadStatus("✗ Unsupported file. Use PDF, TXT, or MD files.");
+    setUploadStatus("✗ Unsupported file. Use PDF or TXT.");
   };
 
   const STEPS = [
@@ -273,7 +263,7 @@ function AddCourseScreen({ onSave, onBack, editCourse, C, S }) {
       sections, syllabus,
       examPattern: { questions: Number(questions) || null, duration: Number(duration) || null, passScore: Number(passScore) || 60, negativeMarking: Number(negMark) || 0, examType },
       topics: editCourse?.topics || sections.map((s, i) => ({ id: `t${i}`, name: s.name + " – Introduction", section: s.name, status: "not_started" })),
-      resources, notes,
+      resources, notes, pdfData,
       quizScores: editCourse?.quizScores || [],
     };
     onSave(course);
@@ -544,6 +534,14 @@ function AddCourseScreen({ onSave, onBack, editCourse, C, S }) {
                   color: uploadStatus.startsWith("✓") ? C.green : uploadStatus.startsWith("⚠") ? C.amber : uploadStatus.startsWith("⏳") ? C.textMuted : C.red }}>
                   {uploadStatus}
                 </p>
+              )}
+              {pdfData && (
+                <div style={{ marginTop: "12px", display: "flex", alignItems: "center", gap: "8px", justifyContent: "center" }}>
+                  <span style={{ fontSize: "20px" }}>📄</span>
+                  <span style={{ fontSize: "13px", color: C.green, fontWeight: 600 }}>{pdfData.name}</span>
+                  <button onClick={() => { setPdfData(null); setUploadStatus(""); }}
+                    style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: "16px" }}>✕</button>
+                </div>
               )}
             </div>
             <p style={{ fontSize: "12px", color: C.textMuted, marginTop: "6px" }}>Text will be extracted from your PDF and used as the AI tutor's study source.</p>
@@ -837,9 +835,20 @@ Rules: End with ONE comprehension question. Keep it under 250 words. Be warm and
       : [...messages, { role: "user", content: userMsg }];
 
     try {
+      const hasPdf = course.pdfData?.base64;
+      const buildMessages = (msgs) => msgs.map(m => {
+        if (m.role === "user" && hasPdf && msgs.indexOf(m) === 0) {
+          return { role: "user", content: [
+            { type: "document", source: { type: "base64", media_type: "application/pdf", data: course.pdfData.base64 } },
+            { type: "text", text: m.content }
+          ]};
+        }
+        return m;
+      });
       const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system, messages: msgs }),
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system, messages: buildMessages(msgs) }),
       });
       const data = await res.json();
       const reply = data.content?.[0]?.text || "Something went wrong — try again.";
@@ -919,9 +928,13 @@ ${course.notes ? `Use ONLY this material:\n\n${course.notes}` : "Use general kno
 Return ONLY valid JSON (no markdown):
 [{"question":"...","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"explanation":"..."}]`;
     try {
+      const quizMsgs = course.pdfData?.base64
+        ? [{ role: "user", content: [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: course.pdfData.base64 } }, { type: "text", text: "Generate quiz." }] }]
+        : [{ role: "user", content: "Generate quiz." }];
       const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1200, system: sys, messages: [{ role: "user", content: "Generate quiz." }] }),
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1200, system: sys, messages: quizMsgs }),
       });
       const data = await res.json();
       const parsed = JSON.parse(data.content?.[0]?.text?.replace(/```json|```/g, "").trim() || "[]");
@@ -1016,9 +1029,13 @@ function FlashcardScreen({ course, onBack, C, S }) {
 ${course.notes ? `Use ONLY:\n\n${course.notes}` : "Use general knowledge."}
 Return ONLY valid JSON: [{"front":"term","back":"explanation in 1-2 sentences"}]`;
     try {
+      const flashMsgs = course.pdfData?.base64
+        ? [{ role: "user", content: [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: course.pdfData.base64 } }, { type: "text", text: "Generate flashcards." }] }]
+        : [{ role: "user", content: "Generate flashcards." }];
       const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1200, system: sys, messages: [{ role: "user", content: "Generate flashcards." }] }),
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1200, system: sys, messages: flashMsgs }),
       });
       const data = await res.json();
       setCards(JSON.parse(data.content?.[0]?.text?.replace(/```json|```/g, "").trim() || "[]"));
@@ -1089,9 +1106,13 @@ ${course.notes ? `Use ONLY:\n\n${course.notes}` : "Use general knowledge."}
 Return ONLY valid JSON:
 [{"question":"...","options":["A. ...","B. ...","C. ...","D. ..."],"correct":0,"explanation":"...","section":"..."}]`;
     try {
+      const examMsgs = course.pdfData?.base64
+        ? [{ role: "user", content: [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: course.pdfData.base64 } }, { type: "text", text: "Generate exam." }] }]
+        : [{ role: "user", content: "Generate exam." }];
       const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 2000, system: sys, messages: [{ role: "user", content: "Generate exam." }] }),
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 2000, system: sys, messages: examMsgs }),
       });
       const data = await res.json();
       const qs = JSON.parse(data.content?.[0]?.text?.replace(/```json|```/g, "").trim() || "[]");
